@@ -23,15 +23,23 @@ Saraga Audiovisual Dataset Loader
     https://zenodo.org/records/17405610, where a really detailed explanation of the dataset is published.
 """
 
-from smart_open import open
 import json
-import os
+import logging
+from typing import BinaryIO, Optional, TextIO, Tuple
 
-import cv2
 import librosa
 import numpy as np
 
-from mirdata import annotations, core, download_utils, io
+from mirdata import core, download_utils, io
+
+try:
+    from moviepy import VideoFileClip
+except ImportError:
+    logging.error(
+        "In order to use saraga_audiovisual you must have MoviePy installed. "
+        "Please reinstall mirdata using `pip install 'mirdata[saraga_audiovisual]'"
+    )
+    raise
 
 BIBTEX = """
 @dataset{sivasankar2024saraga,
@@ -51,8 +59,8 @@ INDEXES = {
     "test": "sample",
     "1.0": core.Index(
         filename="saraga_audiovisual_index.json",
-        url="https://zenodo.org/records/18291024/files/saraga_audiovisual_index.json?download=1",  # TODO
-        checksum="b847ca946f2a88956569c897b186a148 ",  # TODO
+        url="https://zenodo.org/records/18291024/files/saraga_audiovisual_index.json?download=1",
+        checksum="b847ca946f2a88956569c897b186a148",
     ),
     "sample": core.Index(filename="saraga_audiovisual_index_1.0_sample.json"),
 }
@@ -86,50 +94,56 @@ LICENSE_INFO = (
 
 
 class Track(core.Track):
-    """
+    """Saraga Audiovisual Track class
+
     Args:
         track_id (str): track id of the track
         data_home (str): Local path where the dataset is stored. default=None
             If `None`, looks for the data in the default directory, `~/mir_datasets`
 
     Attributes:
-        audio_path (str): path to audio file
+        audio_path (str): path to the mix audio file
         audio_mridangam_left_path (str): path to mridangam left audio file
         audio_mridangam_right_path (str): path to mridangam right audio file
         audio_violin_path (str): path to violin audio file
         audio_vocal_path (str): path to vocal audio file
-        video_path (srt): path to video file
-        keypoints_path (dict): paths to keypoint annotation files
-        scores_path (dict): paths to scores annotation files
-        metadata_path (srt): path to metadata file
+        video_path (str): path to video file
+        keypoint_paths (dict): paths to keypoint files, keyed by "mridangam", "singer" and "violin"
+        score_paths (dict): paths to confidence score files, keyed by "mridangam", "singer" and "violin"
+        metadata_path (str): path to metadata file
 
     Cached Properties:
-        audio (numpy.ndarray, float): audio, samplerate
-        audio_mridangam_left (numpy.ndarray, float): mridangam left audio, samplerate
-        audio_mridangam_right (numpy.ndarray, float): mridangam right audio, samplerate
-        audio_violin (numpy.ndarray, float): violin audio, samplerate
-        audio_vocal (numpy.ndarray, float): vocal audio, samplerate
-        pitch (numpy.ndarray, float): video, framerate
-        mridangam_gesture (GesturData): gesture annotation for mridangam
-        singer_gesture (GesturData): gesture annotation for singer
-        violin_gesture (GesturData): gesture annotation for violin
         metadata (dict): track metadata
+        mridangam_gesture (tuple): keypoints and scores for the mridangam player
+        singer_gesture (tuple): keypoints and scores for the singer
+        violin_gesture (tuple): keypoints and scores for the violinist
+
+    Properties:
+        audio (tuple): mix audio signal and sample rate
+        audio_mridangam_left (tuple): mridangam left audio signal and sample rate
+        audio_mridangam_right (tuple): mridangam right audio signal and sample rate
+        audio_violin (tuple): violin audio signal and sample rate
+        audio_vocal (tuple): vocal audio signal and sample rate
+        video (tuple): video frames and frame rate
+
     """
 
     def __init__(self, track_id, data_home, dataset_name, index, metadata):
-        super().__init__(track_id, data_home, dataset_name, index, metadata)
+        super().__init__(
+            track_id,
+            data_home,
+            dataset_name=dataset_name,
+            index=index,
+            metadata=metadata,
+        )
 
-        # Audio path
         self.audio_path = self.get_path("audio-mix")
-        self.video_path = self.get_path("video")
-
-        # Multitrack audio paths
         self.audio_mridangam_left_path = self.get_path("audio-mridangam-left")
         self.audio_mridangam_right_path = self.get_path("audio-mridangam-right")
         self.audio_violin_path = self.get_path("audio-violin")
         self.audio_vocal_path = self.get_path("audio-vocal")
+        self.video_path = self.get_path("video")
 
-        # Gesture paths
         self.keypoint_paths = {
             "mridangam": self.get_path("keypoints-mridangam"),
             "singer": self.get_path("keypoints-singer"),
@@ -141,127 +155,144 @@ class Track(core.Track):
             "violin": self.get_path("scores-violin"),
         }
 
-        # Metadata path
         self.metadata_path = self.get_path("metadata")
 
     @core.cached_property
-    def metadata(self):
+    def metadata(self) -> Optional[dict]:
         return load_metadata(self.metadata_path)
 
-    @core.cached_property
-    def audio(self):
+    @property
+    def audio(self) -> Optional[Tuple[np.ndarray, float]]:
+        """The mix audio
+
+        Returns:
+            * np.ndarray - audio signal
+            * float - sample rate
+
+        """
         return load_audio(self.audio_path)
 
-    @core.cached_property
-    def audio_mridangam_left(self):
+    @property
+    def audio_mridangam_left(self) -> Optional[Tuple[np.ndarray, float]]:
+        """The mridangam left audio
+
+        Returns:
+            * np.ndarray - audio signal
+            * float - sample rate
+
+        """
         return load_audio(self.audio_mridangam_left_path)
 
-    @core.cached_property
-    def audio_mridangam_right(self):
+    @property
+    def audio_mridangam_right(self) -> Optional[Tuple[np.ndarray, float]]:
+        """The mridangam right audio
+
+        Returns:
+            * np.ndarray - audio signal
+            * float - sample rate
+
+        """
         return load_audio(self.audio_mridangam_right_path)
 
-    @core.cached_property
-    def audio_vocal(self):
-        return load_audio(self.audio_vocal_path)
+    @property
+    def audio_violin(self) -> Optional[Tuple[np.ndarray, float]]:
+        """The violin audio
 
-    @core.cached_property
-    def audio_violin(self):
+        Returns:
+            * np.ndarray - audio signal
+            * float - sample rate
+
+        """
         return load_audio(self.audio_violin_path)
 
-    @core.cached_property
-    def video(self):
+    @property
+    def audio_vocal(self) -> Optional[Tuple[np.ndarray, float]]:
+        """The vocal audio
+
+        Returns:
+            * np.ndarray - audio signal
+            * float - sample rate
+
+        """
+        return load_audio(self.audio_vocal_path)
+
+    @property
+    def video(self) -> Optional[Tuple[np.ndarray, float]]:
+        """The video
+
+        Returns:
+            * np.ndarray - video frames (frames, height, width, channels)
+            * float - frame rate
+
+        """
         return load_video(self.video_path)
 
     @core.cached_property
-    def mridangam_gesture(self):
+    def mridangam_gesture(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         return load_gesture(
             self.keypoint_paths["mridangam"], self.score_paths["mridangam"]
         )
 
     @core.cached_property
-    def singer_gesture(self):
+    def singer_gesture(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         return load_gesture(self.keypoint_paths["singer"], self.score_paths["singer"])
 
     @core.cached_property
-    def violin_gesture(self):
+    def violin_gesture(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         return load_gesture(self.keypoint_paths["violin"], self.score_paths["violin"])
 
 
 @io.coerce_to_string_io
-def load_metadata(fhandle):
+def load_metadata(fhandle: TextIO) -> dict:
     """Load a Saraga Audiovisual metadata file
 
     Args:
         fhandle (str or file-like): File-like object or path to metadata json
 
     Returns:
-        dict: metadata with the following fields
+        dict: metadata of the track
+
     """
-    try:
-        return json.load(fhandle)
-    except Exception as e:
-        raise IOError(f"Error loading metadata: {e}")
+    return json.load(fhandle)
 
 
-def load_audio(audio_path):
+@io.coerce_to_bytes_io
+def load_audio(fhandle: BinaryIO) -> Tuple[np.ndarray, float]:
     """Load a Saraga Audiovisual audio file.
 
     Args:
-        audio_path (str): path to audio file
+        fhandle (str or file-like): File-like object or path to audio file
 
     Returns:
-        np.ndarray: the mono audio signal
-        float: The sample rate of the audio file
+        * np.ndarray - the audio signal
+        * float - The sample rate of the audio file
 
     """
-    if audio_path is None:
-        raise IOError("File path is None")
-
-    try:
-        with open(audio_path, "rb") as f:
-            pass
-    except Exception:
-        raise IOError(f"File not found: {audio_path}")
-
-    audio, sr = librosa.load(audio_path, sr=44100, mono=False)
-
-    return audio, sr
+    return librosa.load(fhandle, sr=None, mono=False)
 
 
-def load_video(video_path):
+def load_video(video_path: str) -> Optional[Tuple[np.ndarray, float]]:
     """Load a Saraga Audiovisual video file.
 
     Args:
         video_path (str): path to video file
 
     Returns:
-        * np.ndarray: the video signal (frames, height, width, channels)
-        * float: The frame rate of the video file
+        * np.ndarray - the video frames (frames, height, width, channels)
+        * float - The frame rate of the video file
 
     """
     if video_path is None:
-        raise IOError("Video path is None")
+        return None
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise IOError(f"Video file cannot be opened: {video_path}")
-
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-    frames = []
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frames.append(frame)
-
-    cap.release()
-
-    return np.array(frames), fps
+    with VideoFileClip(video_path) as clip:
+        frames = np.array(list(clip.iter_frames()))
+        return frames, clip.fps
 
 
-def load_gesture(keypoints_path, scores_path):
+def load_gesture(
+    keypoints_path: str, scores_path: str
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """Load a Saraga Audiovisual gesture file.
 
     Args:
@@ -269,26 +300,20 @@ def load_gesture(keypoints_path, scores_path):
         scores_path (str): path to scores file
 
     Returns:
-        GestureData: gesture data
+        * np.ndarray - the keypoints of the pose estimation
+        * np.ndarray - the confidence scores of the keypoints
 
     """
     if keypoints_path is None or scores_path is None:
-        raise IOError("Gesture paths cannot be None")
+        return None
 
-    try:
-        keypoints = np.load(keypoints_path)
-        scores = np.load(scores_path)
-        gesture = annotations.GestureData(keypoints, scores)
-    except Exception as e:
-        raise IOError(f"Error loading gesture data: {e}")
-
-    return gesture
+    return np.load(keypoints_path), np.load(scores_path)
 
 
 @core.docstring_inherit(core.Dataset)
 class Dataset(core.Dataset):
     """
-    The saraga_audiovisual dataset
+    The Saraga Audiovisual dataset
     """
 
     def __init__(self, data_home=None, version="default"):
@@ -302,21 +327,3 @@ class Dataset(core.Dataset):
             remotes=REMOTES,
             license_info=LICENSE_INFO,
         )
-
-    def load_audio(self, *args, **kwargs):
-        return load_audio(*args, **kwargs)
-
-    def load_video(self, *args, **kwargs):
-        return load_video(*args, **kwargs)
-
-    def load_mridangam_gesture(self, *args, **kwargs):
-        return load_gesture(*args, **kwargs)
-
-    def load_singer_gesture(self, *args, **kwargs):
-        return load_gesture(*args, **kwargs)
-
-    def load_violin_gesture(self, *args, **kwargs):
-        return load_gesture(*args, **kwargs)
-
-    def load_metadata(self, *args, **kwargs):
-        return load_metadata(*args, **kwargs)

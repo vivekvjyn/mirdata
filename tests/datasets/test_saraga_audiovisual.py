@@ -1,6 +1,5 @@
 import os
 import numpy as np
-from mirdata import annotations
 from mirdata.datasets import saraga_audiovisual
 from tests.test_utils import run_track_tests
 import pytest
@@ -92,9 +91,9 @@ def test_track():
         "audio_mridangam_right": tuple,
         "audio_vocal": tuple,
         "audio_violin": tuple,
-        "mridangam_gesture": annotations.GestureData,
-        "singer_gesture": annotations.GestureData,
-        "violin_gesture": annotations.GestureData,
+        "mridangam_gesture": tuple,
+        "singer_gesture": tuple,
+        "violin_gesture": tuple,
         "metadata": dict,
     }
 
@@ -117,9 +116,8 @@ def test_load_audio():
     assert type(audio) == np.ndarray
     assert audio.shape[0] == 2
 
-    with pytest.raises(IOError):
-        saraga_audiovisual.load_audio(None)
-    with pytest.raises(IOError):
+    assert saraga_audiovisual.load_audio(None) is None
+    with pytest.raises(FileNotFoundError):
         saraga_audiovisual.load_audio("a/fake/path")
 
 
@@ -130,16 +128,16 @@ def test_load_video():
     video_path = track.video_path
     video, fps = saraga_audiovisual.load_video(video_path)
 
-    assert type(video) == np.ndarray
-    assert type(fps) == int
+    assert isinstance(video, np.ndarray)
+    assert video.ndim == 4
+    assert fps > 0
 
-    with pytest.raises(IOError):
-        saraga_audiovisual.load_video(None)
-    with pytest.raises(IOError):
+    assert saraga_audiovisual.load_video(None) is None
+    with pytest.raises(OSError):
         saraga_audiovisual.load_video("a/fake/path")
 
 
-def test_load_metadtata():
+def test_load_metadata():
     data_home = "tests/resources/mir_datasets/saraga_audiovisual"
     dataset = saraga_audiovisual.Dataset(data_home, version="test")
     track = dataset.track("0_Devi_Pavane")
@@ -188,7 +186,7 @@ def test_load_metadtata():
     assert parsed_metadata["concert"] == []
     assert parsed_metadata["album_artists"] == []
 
-    with pytest.raises(IOError):
+    with pytest.raises(FileNotFoundError):
         saraga_audiovisual.load_metadata("a/fake/path")
 
 
@@ -196,17 +194,15 @@ def test_load_gesture():
     data_home = "tests/resources/mir_datasets/saraga_audiovisual"
     dataset = saraga_audiovisual.Dataset(data_home, version="test")
     track = dataset.track("0_Devi_Pavane")
-    track = dataset.track("0_Devi_Pavane")
     keypoint_path = track.keypoint_paths["singer"]
     score_path = track.score_paths["singer"]
-    gesture = saraga_audiovisual.load_gesture(keypoint_path, score_path)
+    keypoints, scores = saraga_audiovisual.load_gesture(keypoint_path, score_path)
 
     assert np.array_equal(
-        gesture.keypoints, np.array([[100, 200], [200, 400]], dtype=np.float32)
+        keypoints, np.array([[100, 200], [200, 400]], dtype=np.float32)
     )
-    assert np.array_equal(gesture.scores, np.array([[1, 0.5]], dtype=np.float32))
+    assert np.array_equal(scores, np.array([[1, 0.5]], dtype=np.float32))
 
-    with pytest.raises(IOError):
-        saraga_audiovisual.load_gesture(None, None)
-    with pytest.raises(IOError):
+    assert saraga_audiovisual.load_gesture(None, None) is None
+    with pytest.raises(FileNotFoundError):
         saraga_audiovisual.load_gesture("a/fake/path", "a/fake/path")

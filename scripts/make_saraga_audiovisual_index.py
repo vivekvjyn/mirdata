@@ -24,7 +24,6 @@ def make_saraga_audiovisual_index(dataset_path):
         for song in os.listdir(os.path.join(dataset_path + " audio", concert)):
             # Declare track attributes
             index = str(idx) + "_" + song.replace(" ", "_")
-            print(index)
 
             # Audio
             audio = (None, None)
@@ -99,15 +98,14 @@ def make_saraga_audiovisual_index(dataset_path):
                         )
                         audio_vocal = (audio_vocal_path, audio_vocal_checksum)
 
+            # Not every concert has a video: only index the ones that are available
             video_path = os.path.join(DATASET + " visual", concert, song, song + ".mov")
-            print(f"./{concert}/{song}/{song}.mov")
-            if f"./{concert}/{song}/{song}.mov" not in ["./Pranathi Ganapuram/Narayanathe Namo Namo/Narayanathe Namo Namo.mov",]:
-                video_checksum = video_checksums.loc[
-                    video_checksums["path"] == f"./{concert}/{song}/{song}.mov",
-                    "checksum",
-                ].values[0]
-
-                video = (video_path, video_checksum)
+            video_checksum = video_checksums.loc[
+                video_checksums["path"] == f"./{concert}/{song}/{song}.mov",
+                "checksum",
+            ]
+            if not video_checksum.empty:
+                video = (video_path, video_checksum.values[0])
 
             for file in os.listdir(
                 os.path.join(dataset_path + " gesture", concert, song)
