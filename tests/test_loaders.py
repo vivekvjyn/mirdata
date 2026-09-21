@@ -44,7 +44,7 @@ CUSTOM_TEST_TRACKS = {
     "mridangam_stroke": "224030",
     "rwc_classical": "RM-C003",
     "rwc_jazz": "RM-J004",
-    "rwc_popular": "RM-P001",
+    "rwc_popular": "RWC_P001",
     "openmic2018": "000046_3840",
     "salami": "2",
     "saraga_carnatic": "116_Bhuvini_Dasudane",
@@ -368,6 +368,11 @@ EXCEPTIONS = {
         "load_notation": {
             "taala_path": "a/fake/path",
             "structure_path": "a/fake/path",
+        },
+    },
+    "saraga_audiovisual": {
+        "load_gesture": {
+            "scores_path": "a/fake/path",
         },
     },
     "jtd": {"load_beats": {"col_idx": 0}},
